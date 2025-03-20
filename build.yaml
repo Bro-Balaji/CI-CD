@@ -1,0 +1,75 @@
+steps:
+
+- bash: |
+    echo "System Default Working Directory: $(System.DefaultWorkingDirectory)"
+  displayName: 'Print Default Working Directory'
+
+- bash: |
+    echo "Listing contents of the default working directory:"
+    ls -al "$(System.DefaultWorkingDirectory)"
+  displayName: 'List Working Directory Contents'
+
+- task: sonarsource.sonarqube.15B84CA1-B62F-4A2A-A403-89B77A063157.SonarQubePrepare@4
+  displayName: 'Prepare analysis on SonarQube'
+  inputs:
+    SonarQube: Sonarqube_Enterprise
+    scannerMode: CLI
+    configMode: file
+    configFile: '$(System.DefaultWorkingDirectory)/sonar-project.properties'
+
+- task: Maven@3
+  displayName: 'Clean Install'
+  inputs:
+    mavenPomFile: 'pom.xml'
+    #goals: 'clean package'
+    options: '-s /home/udeploy/DevOps/apache-maven-3.5.2/conf/settings_dap.xml -gs /home/udeploy/DevOps/apache-maven-3.5.2/conf/settings_dap.xml'
+    goals: 'clean install -DskipTests=true'
+
+- task: PublishBuildArtifacts@1
+  inputs:
+    #testing
+    #artifactName: '$(Build.BuildId)'
+    ArtifactName: '$(Build.Repository.Name)-$(Build.BuildId)'
+  displayName: 'Publish Artifact'
+
+- task: JFrog.jfrog-artifactory-vsts-extension.artifactory-generic-upload.ArtifactoryGenericUpload@2
+  displayName: 'Artifactory Generic Upload'
+  inputs:
+    artifactoryService: 'jfrog_artifacotry'
+    fileSpec: |
+     {
+       "files": [
+         {
+           "pattern": "**/*.jar",
+           "target": "jconn-regulatory-webapp__dev__java/$(Build.DefinitionName)/$(Build.DefinitionName)_$(Build.BuildId)/"
+         }
+       ]
+     }
+    collectBuildInfo: true
+
+- task: JFrog.jfrog-artifactory-vsts-extension.artifactory-publish-build-info.ArtifactoryPublishBuildInfo@1
+  displayName: 'Artifactory Publish Build Info'
+  inputs:
+    artifactoryService: 'jfrog_artifacotry'
+
+
+- task: CopyFiles@2
+  displayName: 'Copy Files to Artifactstagingdirectory'
+  inputs:
+    #SourceFolder: '$(System.DefaultWorkingDirectory)/target/'
+    SourceFolder: '$(System.DefaultWorkingDirectory)'
+    Contents: '**/target/*.jar'
+
+    TargetFolder: '$(build.artifactstagingdirectory)'
+
+
+- bash: |
+   echo Setting JAVA_HOME to "/home/udeploy/java8/jdk-11.0.8"
+   echo "##vso[task.setvariable variable=JAVA_HOME]/home/udeploy/jdk-11.0.8"
+  displayName: 'Set Java Version'
+
+- task: sonarsource.sonarqube.6D01813A-9589-4B15-8491-8164AEB38055.SonarQubeAnalyze@4
+  displayName: 'Run Code Analysis'
+
+- task: sonarsource.sonarqube.291ed61f-1ee4-45d3-b1b0-bf822d9095ef.SonarQubePublish@4
+  displayName: 'Publish Quality Gate Result'
